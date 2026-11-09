@@ -3,24 +3,21 @@ use allocator_api2::{
     boxed::Box,
     vec::Vec
 };
-#[cfg(not(feature = "allocator-api2"))]
-use std::{
-    boxed::Box,
-    vec::Vec
-};
 use {
     core::{
         borrow::{
             Borrow,
             BorrowMut
         },
-        cell::Cell,
+        cell::{
+            Cell,
+            RefCell
+        },
         hash::{
             Hash,
             Hasher
         },
         iter::{
-            FromIterator,
             repeat_n,
             repeat_with
         },
@@ -28,11 +25,12 @@ use {
     },
     smallvec::SmallVec,
     std::{
-        borrow::ToOwned,
         hash::DefaultHasher,
         panic::{
             AssertUnwindSafe,
-            catch_unwind
+            catch_unwind,
+            set_hook,
+            take_hook
         },
         rc::Rc
     }
@@ -136,13 +134,11 @@ pub fn double_spill() {
     );
 }
 
-// https://github.com/servo/rust-smallvec/issues/4
+// https://github.com/smallvec/smallvec/issues/4
 #[test]
-fn issue_4() {
-    SmallVec::<Box<u32>, 2>::new();
-}
+fn issue_4() { SmallVec::<Box<u32>, 2>::new(); }
 
-// https://github.com/servo/rust-smallvec/issues/5
+// https://github.com/smallvec/smallvec/issues/5
 #[test]
 fn issue_5() {
     assert!(Some(SmallVec::<&u32, 2>::new()).is_some());
@@ -249,9 +245,7 @@ fn splice_reserve_panic() {
     struct CountDrop<'valid>(&'valid Cell<usize>);
 
     impl Drop for CountDrop<'_> {
-        fn drop(&mut self) {
-            self.0.set(self.0.get() + 1);
-        }
+        fn drop(&mut self) { self.0.set(self.0.get() + 1); }
     }
 
     for capacity in [4, 8] {
@@ -322,10 +316,8 @@ fn into_iter_rev() {
 fn into_iter_drop() {
     struct DropCounter<'valid>(&'valid Cell<i32>);
 
-    impl<'valid> Drop for DropCounter<'valid> {
-        fn drop(&mut self) {
-            self.0.set(self.0.get() + 1);
-        }
+    impl Drop for DropCounter<'_> {
+        fn drop(&mut self) { self.0.set(self.0.get() + 1); }
     }
 
     {
@@ -470,7 +462,7 @@ fn append() {
     }
     assert_eq!(v.len(), 4);
 
-    let mut n: SmallVec<u8, 2> = SmallVec::from_buf([5, 6]);
+    let mut n: SmallVec<u8, 2> = SmallVec::inline([5, 6]);
     v.append(&mut n);
     assert_eq!(v.len(), 6);
     assert_eq!(n.len(), 0);
@@ -994,9 +986,7 @@ fn grow_spilled_same_size() {
 }
 
 #[test]
-fn const_generics() {
-    let _v = SmallVec::<i32, 987>::default();
-}
+fn const_generics() { let _v = SmallVec::<i32, 987>::default(); }
 
 #[test]
 fn const_new() {
@@ -1013,20 +1003,12 @@ fn const_new() {
     assert_eq!(v[0], 1);
     assert_eq!(v[1], 4);
 }
-const fn const_new_inner() -> SmallVec<i32, 4> {
-    SmallVec::<i32, 4>::new()
-}
-const fn const_new_inline_sized() -> SmallVec<i32, 4> {
-    SmallVec::from_buf([1; 4])
-}
-const fn const_new_inline_args() -> SmallVec<i32, 2> {
-    SmallVec::from_buf([1, 4])
-}
+const fn const_new_inner() -> SmallVec<i32, 4> { SmallVec::<i32, 4>::new() }
+const fn const_new_inline_sized() -> SmallVec<i32, 4> { SmallVec::inline([1; 4]) }
+const fn const_new_inline_args() -> SmallVec<i32, 2> { SmallVec::inline([1, 4]) }
 
 #[test]
-fn zero_size_items() {
-    SmallVec::<(), 0>::new().push(());
-}
+fn zero_size_items() { SmallVec::<(), 0>::new().push(()); }
 
 #[test]
 fn clone_from() {
@@ -1097,15 +1079,13 @@ fn max_insert() {
 
 #[test]
 fn collect_from_iter() {
-    // Regression test for https://github.com/servo/rust-smallvec/issues/353
+    // Regression test for https://github.com/smallvec/smallvec/issues/353
     struct IterNoHint<I: Iterator>(I);
 
     impl<I: Iterator> Iterator for IterNoHint<I> {
         type Item = I::Item;
 
-        fn next(&mut self) -> Option<Self::Item> {
-            self.0.next()
-        }
+        fn next(&mut self) -> Option<Self::Item> { self.0.next() }
 
         // no implementation of size_hint means it returns (0, None) - which
         // forces from_iter to grow the allocated space iteratively.
@@ -1155,4 +1135,58 @@ fn spare_capacity_mut() {
     let spare = v.spare_capacity_mut();
     assert!(!spare.is_empty());
     assert_eq!(spare.as_ptr().cast::<u8>(), unsafe { v.as_ptr().add(3) });
+}
+
+thread_local! {
+    static LOCATION: RefCell<Option<(String, u32)>> = const { RefCell::new(None) };
+}
+
+/// Runs `f` and returns the file and line its panic was reported at.
+fn panic_location(f: impl FnOnce()) -> Option<(String, u32)> {
+    let previous = take_hook();
+    set_hook(std::boxed::Box::new(|info| {
+        let location = info
+            .location()
+            .map(|location| (location.file().to_owned(), location.line()));
+        LOCATION.with(|cell| *cell.borrow_mut() = location);
+    }));
+    let result = catch_unwind(AssertUnwindSafe(f));
+    set_hook(previous);
+    assert!(result.is_err(), "expected a panic");
+    LOCATION.with(|cell| cell.borrow_mut().take())
+}
+
+/// Asserts that the expression panics and that the panic points at this line.
+macro_rules! assert_panics_here {
+    ($expr:expr) => {
+        assert_eq!(
+            panic_location(|| _ = $expr),
+            Some((file!().to_owned(), line!())),
+            "`{}` panicked at the wrong location",
+            stringify!($expr)
+        )
+    };
+}
+
+#[test]
+fn panics_point_to_caller() {
+    let mut v: SmallVec<i32, 2> = SmallVec::from([1, 2, 3]);
+
+    assert_panics_here!(v.swap_remove(10));
+    assert_panics_here!(v.remove(10));
+    assert_panics_here!(v.insert(10, 0));
+    assert_panics_here!(v.insert_mut(10, 0));
+    assert_panics_here!(v.split_off(10));
+    assert_panics_here!(v.drain(2..10));
+    assert_panics_here!(v.drain(..=usize::MAX));
+    assert_panics_here!(v.splice(2..10, [0]));
+    assert_panics_here!(v.reserve(usize::MAX));
+    assert_panics_here!(v.reserve_exact(usize::MAX));
+    assert_panics_here!(v.grow(usize::MAX));
+    assert_panics_here!(v.insert_from_slice_copy(10, &[0]));
+    assert_panics_here!(v.extend_from_within(2..10));
+    assert_panics_here!(v.extend_from_within_copy(2..10));
+    assert_panics_here!(SmallVec::<i32, 2>::with_capacity(usize::MAX));
+    assert_panics_here!(SmallVec::<i32, 2>::inline_with_length([1, 2], 3));
+    assert_panics_here!(SmallVec::<i32, 2>::new().leak());
 }

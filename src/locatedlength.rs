@@ -1,4 +1,17 @@
-use core::marker::PhantomData;
+use core::{
+    fmt::{
+        Debug,
+        Formatter,
+        Result as Format
+    },
+    marker::PhantomData
+};
+#[cfg(feature = "defmt")]
+use defmt::{
+    Format as DeFormat,
+    Formatter as DeFormatter,
+    write as dewrite
+};
 
 /// Vec guarantees that its length is always less than [`isize::MAX`] in
 /// *bytes*.
@@ -16,12 +29,33 @@ pub struct LocatedLength<Item>(usize, PhantomData<Item>);
 // be `Copy` or `Clone`.
 impl<Item> Clone for LocatedLength<Item> {
     #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
+    fn clone(&self) -> Self { *self }
 }
 
 impl<Item> Copy for LocatedLength<Item> {}
+
+impl<Item> Debug for LocatedLength<Item> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Format {
+        let (length, on_heap) = self.parts();
+        f.debug_struct("LocatedLength")
+            .field("length", &length)
+            .field("on_heap", &on_heap)
+            .finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<Item> DeFormat for LocatedLength<Item> {
+    fn format(&self, fmt: DeFormatter<'_>) {
+        let (length, on_heap) = self.parts();
+        dewrite!(
+            fmt,
+            "LocatedLength {{ length: {=usize}, on_heap: {=bool} }}",
+            length,
+            on_heap
+        );
+    }
+}
 
 #[allow(clippy::len_without_is_empty)]
 impl<Item> LocatedLength<Item> {
@@ -40,20 +74,14 @@ impl<Item> LocatedLength<Item> {
     }
 
     #[inline(always)]
-    pub const fn len(self) -> usize {
-        self.0 >> Self::SHIFT
-    }
+    pub const fn len(self) -> usize { self.0 >> Self::SHIFT }
 
     #[inline(always)]
     #[must_use]
-    pub const fn on_heap(self) -> bool {
-        self.0 & Self::TAG != 0
-    }
+    pub const fn on_heap(self) -> bool { self.0 & Self::TAG != 0 }
 
     #[inline(always)]
-    pub const fn parts(self) -> (usize, bool) {
-        (self.0 >> Self::SHIFT, (self.0 & Self::TAG) != 0)
-    }
+    pub const fn parts(self) -> (usize, bool) { (self.0 >> Self::SHIFT, (self.0 & Self::TAG) != 0) }
 
     #[inline(always)]
     pub const fn set_location<const ON: bool>(&mut self) {
@@ -71,9 +99,7 @@ impl<Item> LocatedLength<Item> {
         {
             #[cold]
             #[inline(never)]
-            const fn assert_failed() {
-                panic!("smallvec length overflow")
-            }
+            const fn assert_failed() { panic!("smallvec length overflow") }
             match self.len().checked_add(n) {
                 Some(value) => {
                     if value > Self::MAX_LEN {

@@ -1,5 +1,9 @@
 #[cfg(feature = "specialization")]
 use super::specialization::SpecFromSlice;
+#[cfg(not(feature = "std"))]
+use alloc::borrow::ToOwned;
+#[cfg(feature = "arrayvec")]
+use arrayvec::ArrayVec;
 use {
     super::{
         SmallVec,
@@ -8,11 +12,13 @@ use {
             boxed::Box,
             global::Global,
             like::Like,
+            parts::Parts,
             vec::Vec
         },
         locatedlength::LocatedLength,
         rawsmallvec::RawSmallVec
     },
+    alloc::borrow::Cow,
     core::{
         mem::ManuallyDrop,
         ptr::{
@@ -48,27 +54,21 @@ impl<Item: Clone, const INLINE: usize> From<&[Item]> for SmallVec<Item, INLINE, 
 
 impl<Item: Clone, const INLINE: usize> From<&mut [Item]> for SmallVec<Item, INLINE, Global> {
     #[inline]
-    fn from(slice: &mut [Item]) -> Self {
-        Self::from(slice as &[Item])
-    }
+    fn from(slice: &mut [Item]) -> Self { From::<&[Item]>::from(slice) }
 }
 
 impl<Item: Clone, const M: usize, const INLINE: usize> From<&[Item; M]>
     for SmallVec<Item, INLINE, Global>
 {
     #[inline]
-    fn from(slice: &[Item; M]) -> Self {
-        Self::from(slice as &[Item])
-    }
+    fn from(slice: &[Item; M]) -> Self { From::<&[Item]>::from(slice) }
 }
 
 impl<Item: Clone, const M: usize, const INLINE: usize> From<&mut [Item; M]>
     for SmallVec<Item, INLINE, Global>
 {
     #[inline]
-    fn from(slice: &mut [Item; M]) -> Self {
-        Self::from(slice as &[Item])
-    }
+    fn from(slice: &mut [Item; M]) -> Self { From::<&[Item]>::from(slice) }
 }
 
 impl<Item, const INLINE: usize, const M: usize> From<[Item; M]> for SmallVec<Item, INLINE, Global> {
@@ -108,10 +108,48 @@ impl<Item, const INLINE: usize, const M: usize, Heap: Allocator>
             unsafe {
                 this.set_len(0);
             }
-            let ptr = this.as_ptr() as *const [Item; M];
+            let pointer = this.as_ptr() as *const [Item; M];
             // SAFETY: these elements are initialized since the length was `M`
-            unsafe { Ok(ptr.read()) }
+            unsafe { Ok(pointer.read()) }
         }
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<Item, const INLINE: usize, const LENGTH: usize> From<ArrayVec<Item, LENGTH>>
+    for SmallVec<Item, INLINE, Global>
+{
+    fn from(mut array: ArrayVec<Item, LENGTH>) -> Self {
+        let length = array.len();
+        let mut smallvec = Self::with_capacity(length);
+        unsafe {
+            copy_nonoverlapping(array.as_ptr(), smallvec.as_mut_ptr(), length);
+            array.set_len(0);
+            smallvec.set_len(length);
+        }
+        smallvec
+    }
+}
+#[cfg(feature = "arrayvec")]
+impl<Item, const INLINE: usize, const LENGTH: usize, Heap: Allocator>
+    TryFrom<SmallVec<Item, INLINE, Heap>> for ArrayVec<Item, LENGTH>
+{
+    type Error = SmallVec<Item, INLINE, Heap>;
+
+    fn try_from(
+        mut smallvec: SmallVec<Item, INLINE, Heap>
+    ) -> Result<ArrayVec<Item, LENGTH>, SmallVec<Item, INLINE, Heap>> {
+        let length = smallvec.len();
+        if length > LENGTH {
+            return Err(smallvec);
+        }
+        let mut array = ArrayVec::new();
+        unsafe {
+            copy_nonoverlapping(smallvec.as_ptr(), array.as_mut_ptr(), length);
+            smallvec.set_len(0);
+            array.set_len(length);
+        }
+        Ok(array)
     }
 }
 
@@ -146,18 +184,20 @@ impl<Item, const INLINE: usize> From<<Vec<Item, Global> as Like>::Type>
             let length = vec.len();
 
             // A heap-allocated `SmallVec` must always observe the invariant
-            // that `cap > INLINE`.
+            // that `capacity > INLINE`.
             if vec.capacity() <= INLINE {
                 vec.reserve(INLINE + 1 - length);
             }
-            let cap = vec.capacity();
             // SAFETY: vec.capacity is not `0` (checked above), so the pointer
             // can not dangle and thus specifically cannot be null.
-            let ptr = unsafe { NonNull::new_unchecked(vec.as_mut_ptr()) };
-
             Self {
                 length: LocatedLength::new(length, true),
-                raw: RawSmallVec::heap(ptr, cap),
+                raw: RawSmallVec {
+                    heap: NonNull::slice_from_raw_parts(
+                        unsafe { NonNull::new_unchecked(vec.as_mut_ptr()).cast() },
+                        vec.capacity()
+                    )
+                },
                 allocator: Global
             }
         }
@@ -184,15 +224,20 @@ impl<Item, const INLINE: usize, Heap: Allocator> From<SmallVec<Item, INLINE, Hea
         } else {
             let this = ManuallyDrop::new(this);
             // SAFETY:
-            // - `ptr` was created with the SmallVec's allocator
-            // - `ptr` was created with the appropriate alignment for `Item`
-            // - the allocation pointed to by ptr is exactly cap * sizeof(Item)
-            // - `length` is less than or equal to `cap`
+            // - `pointer` was created with the SmallVec's allocator
+            // - `pointer` was created with the appropriate alignment for `Item`
+            // - the allocation pointed to by pointer is exactly capacity *
+            //   sizeof(Item)
+            // - `length` is less than or equal to `capacity`
             // - the first `length` entries are proper `Item`-values
             // - the allocation is not larger than `isize::MAX`
             unsafe {
-                let (ptr, cap) = this.raw.heap;
-                <Vec<Item, Global> as Like>::Type::from_raw_parts(ptr.as_ptr(), length, cap)
+                let pointer = this.raw.heap;
+                <Vec<Item, Global> as Like>::Type::from_raw_parts(
+                    pointer.cast().as_ptr(),
+                    length,
+                    pointer.len()
+                )
             }
         }
     }
@@ -207,7 +252,71 @@ impl<Item, const INLINE: usize, Heap: Allocator> From<SmallVec<Item, INLINE, Hea
 }
 
 impl<T, const N: usize> From<<Box<[T], Global> as Like>::Type> for SmallVec<T, N> {
-    fn from(boxed: <Box<[T], Global> as Like>::Type) -> Self {
-        boxed.into_vec().into()
+    fn from(boxed: <Box<[T], Global> as Like>::Type) -> Self { boxed.into_vec().into() }
+}
+
+impl<Item, const INLINE: usize> From<SmallVec<Item, INLINE, Global>>
+    for (LocatedLength<Item>, RawSmallVec<Item, INLINE>)
+{
+    #[inline]
+    fn from(value: SmallVec<Item, INLINE, Global>) -> Self {
+        let (length, raw, Global) = value.into();
+        (length, raw)
+    }
+}
+
+impl<Item, const INLINE: usize, Heap: Allocator> From<SmallVec<Item, INLINE, Heap>>
+    for (LocatedLength<Item>, RawSmallVec<Item, INLINE>, Heap)
+{
+    #[inline]
+    fn from(value: SmallVec<Item, INLINE, Heap>) -> Self {
+        let this = ManuallyDrop::new(value);
+        // SAFETY: `this` is never dropped or used again, so each field is moved
+        // out exactly once and `Drop for SmallVec` never runs.
+        (
+            this.length,
+            unsafe { (&raw const this.raw).read() },
+            unsafe { (&raw const this.allocator).read() }
+        )
+    }
+}
+
+impl<Item: Clone, const INLINE: usize> From<Cow<'_, [Item]>> for SmallVec<Item, INLINE, Global> {
+    #[inline]
+    fn from(value: Cow<'_, [Item]>) -> Self {
+        match value {
+            Cow::Owned(mut vector) => unsafe {
+                match NonNull::new(vector.as_mut_ptr()) {
+                    Some(pointer) => Self::parts(
+                        LocatedLength::new(vector.len(), true),
+                        RawSmallVec {
+                            heap: NonNull::slice_from_raw_parts(pointer.cast(), vector.capacity())
+                        }
+                    ),
+                    None => Self::parts(LocatedLength::new(vector.len(), false), RawSmallVec::new())
+                }
+            },
+            Cow::Borrowed(slice) => slice.into()
+        }
+    }
+}
+impl<Item: Clone, const INLINE: usize> From<SmallVec<Item, INLINE, Global>> for Cow<'_, [Item]> {
+    #[inline]
+    fn from(value: SmallVec<Item, INLINE, Global>) -> Self {
+        let Parts {
+            pointer,
+            length,
+            allocator: Global
+        } = <Vec<Item, Global> as Like>::destruct(<Vec<Item, Global> as Like>::Type::from(value));
+        Cow::Owned(unsafe {
+            <[Item] as ToOwned>::Owned::from_raw_parts(
+                pointer
+                    .map(NonNull::cast::<Item>)
+                    .unwrap_or_else(NonNull::dangling)
+                    .as_ptr(),
+                length,
+                pointer.map(NonNull::len).unwrap_or_default()
+            )
+        })
     }
 }

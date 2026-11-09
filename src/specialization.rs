@@ -43,13 +43,13 @@ impl<Item: Copy, const INLINE: usize> SpecFromElem<Item> for SmallVec<Item, INLI
         let mut result = Self::new();
 
         if n > 0 {
-            let ptr = result.raw.as_mut_ptr_inline();
+            let pointer = result.raw.as_mut_ptr_inline();
 
             // SAFETY: The caller ensures that the first `n`
             // is smaller than the inline size.
             unsafe {
                 for i in 0..n {
-                    ptr.add(i).write(elem);
+                    pointer.add(i).write(elem);
                 }
             }
         }
@@ -74,9 +74,7 @@ impl<Item, I, const INLINE: usize, Heap: Allocator> SpecExtend<Item, I>
 where I: Iterator<Item = Item>
 {
     #[inline]
-    default fn spec_extend(&mut self, iter: I) {
-        self.extend_fallback(iter);
-    }
+    default fn spec_extend(&mut self, iter: I) { self.extend_fallback(iter); }
 }
 
 impl<Item, I, const INLINE: usize, Heap: Allocator> SpecExtend<Item, I>
@@ -95,14 +93,14 @@ where I: TrustedLen<Item = Item>
         // operate on valid memory.
         unsafe {
             let length = self.len();
-            let ptr = self.as_mut_ptr().add(length);
+            let pointer = self.as_mut_ptr().add(length);
             let mut guard = DropGuard {
-                ptr,
+                pointer,
                 length: 0
             };
 
             for x in iter {
-                ptr.add(guard.length).write(x);
+                pointer.add(guard.length).write(x);
                 guard.length += 1;
             }
 
@@ -148,9 +146,7 @@ where
     Item: Clone
 {
     #[inline]
-    default fn spec_extend(&mut self, iterator: I) {
-        self.spec_extend(iterator.cloned())
-    }
+    default fn spec_extend(&mut self, iterator: I) { self.spec_extend(iterator.cloned()) }
 }
 
 impl<'valid, Item: 'valid, const INLINE: usize, Heap: Allocator>
@@ -219,9 +215,9 @@ impl<Item: Copy, const INLINE: usize, Heap: Allocator> SpecExtendFromWithin<Item
         // for at least `source.len()` elements. This is also the amount of
         // memory accessed when the data is copied.
         unsafe {
-            let ptr = self.as_mut_ptr();
-            let destination = ptr.add(old_len);
-            let source = ptr.add(start);
+            let pointer = self.as_mut_ptr();
+            let destination = pointer.add(old_len);
+            let source = pointer.add(start);
             copy_nonoverlapping(source, destination, length);
         }
 
@@ -243,9 +239,7 @@ impl<Item, I, const INLINE: usize> SpecFromIterator<Item, I> for SmallVec<Item, 
 where I: Iterator<Item = Item>
 {
     #[inline]
-    default fn spec_from_iter(iter: I) -> Self {
-        Self::from_iter_fallback(iter)
-    }
+    default fn spec_from_iter(iter: I) -> Self { Self::from_iter_fallback(iter) }
 }
 
 impl<Item, I, const INLINE: usize> SpecFromIterator<Item, I> for SmallVec<Item, INLINE, Global>
@@ -277,9 +271,7 @@ impl<Item: Clone, const INLINE: usize, Heap: Allocator> SpecCloneFrom<Item>
     for SmallVec<Item, INLINE, Heap>
 {
     #[inline]
-    default fn spec_clone_from(&mut self, source: &[Item]) {
-        self.clone_from_fallback(source);
-    }
+    default fn spec_clone_from(&mut self, source: &[Item]) { self.clone_from_fallback(source); }
 }
 
 impl<Item: Copy, const INLINE: usize, Heap: Allocator> SpecCloneFrom<Item>

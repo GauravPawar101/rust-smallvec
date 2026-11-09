@@ -1,3 +1,9 @@
+#[cfg(feature = "defmt")]
+use defmt::{
+    Format as DeFormat,
+    Formatter as DeFormatter,
+    write as dewrite
+};
 use {
     super::super::{
         SmallVec,
@@ -59,9 +65,7 @@ impl<'valid, Item: 'valid, const INLINE: usize, Heap: Allocator> Iterator
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
 }
 
 impl<'valid, Item: 'valid, const INLINE: usize, Heap: Allocator> DoubleEndedIterator
@@ -80,44 +84,38 @@ impl<Item, const INLINE: usize, Heap: Allocator> ExactSizeIterator
     for Drain<'_, Item, INLINE, Heap>
 {
     #[inline]
-    fn len(&self) -> usize {
-        self.iter.len()
-    }
+    fn len(&self) -> usize { self.iter.len() }
 }
 
 impl<Item, const INLINE: usize, Heap: Allocator> FusedIterator for Drain<'_, Item, INLINE, Heap> {}
+
+struct DropGuard<'guard, 'valid, Item, const INLINE: usize, Heap: Allocator>(
+    &'guard mut Drain<'valid, Item, INLINE, Heap>
+);
+impl<Item, const INLINE: usize, Heap: Allocator> Drop for DropGuard<'_, '_, Item, INLINE, Heap> {
+    fn drop(&mut self) {
+        if self.0.tail_len > 0 {
+            unsafe {
+                let source_vec = self.0.vec.as_mut();
+                // memmove back untouched tail, update to new length
+                let start = source_vec.len();
+                let tail = self.0.tail_start;
+                if tail != start {
+                    let pointer = source_vec.as_mut_ptr();
+                    let source = pointer.add(tail);
+                    let destination = pointer.add(start);
+                    copy(source, destination, self.0.tail_len);
+                }
+                source_vec.length.add(self.0.tail_len);
+            }
+        }
+    }
+}
 
 impl<'valid, Item: 'valid, const INLINE: usize, Heap: Allocator> Drop
     for Drain<'valid, Item, INLINE, Heap>
 {
     fn drop(&mut self) {
-        /// Moves back the un-`Drain`ed elements to restore the original `Vec`.
-        struct DropGuard<'guard, 'valid, Item, const INLINE: usize, Heap: Allocator>(
-            &'guard mut Drain<'valid, Item, INLINE, Heap>
-        );
-
-        impl<'guard, 'valid, Item, const INLINE: usize, Heap: Allocator> Drop
-            for DropGuard<'guard, 'valid, Item, INLINE, Heap>
-        {
-            fn drop(&mut self) {
-                if self.0.tail_len > 0 {
-                    unsafe {
-                        let source_vec = self.0.vec.as_mut();
-                        // memmove back untouched tail, update to new length
-                        let start = source_vec.len();
-                        let tail = self.0.tail_start;
-                        if tail != start {
-                            let ptr = source_vec.as_mut_ptr();
-                            let source = ptr.add(tail);
-                            let destination = ptr.add(start);
-                            copy(source, destination, self.0.tail_len);
-                        }
-                        source_vec.length.add(self.0.tail_len);
-                    }
-                }
-            }
-        }
-
         let iter = take(&mut self.iter);
         let drop_len = iter.len();
 
@@ -172,13 +170,9 @@ impl<'valid, Item: 'valid, const INLINE: usize, Heap: Allocator> Drop
     }
 }
 
-impl<'valid, Item, const INLINE: usize, Heap: Allocator> AsRef<[Item]>
-    for Drain<'valid, Item, INLINE, Heap>
-{
+impl<Item, const INLINE: usize, Heap: Allocator> AsRef<[Item]> for Drain<'_, Item, INLINE, Heap> {
     #[inline]
-    fn as_ref(&self) -> &[Item] {
-        self.iter.as_slice()
-    }
+    fn as_ref(&self) -> &[Item] { self.iter.as_slice() }
 }
 
 impl<Item, const INLINE: usize, Heap: Allocator> Drain<'_, Item, INLINE, Heap> {
@@ -187,9 +181,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> Drain<'_, Item, INLINE, Heap> {
         note = "use `<Drain<'_, Item, INLINE, Heap> as AsRef<[Item]>>::as_ref` instead"
     )]
     #[must_use]
-    pub fn as_slice(&self) -> &[Item] {
-        self.as_ref()
-    }
+    pub fn as_slice(&self) -> &[Item] { self.as_ref() }
 
     /// The range from `self.vec.length` to `self.tail_start` contains elements
     /// that have been moved out.
@@ -230,10 +222,10 @@ impl<Item, const INLINE: usize, Heap: Allocator> Drain<'_, Item, INLINE, Heap> {
 
         let new_tail_start = self.tail_start + additional;
         unsafe {
-            let ptr = vec.as_mut_ptr();
+            let pointer = vec.as_mut_ptr();
             copy(
-                ptr.add(self.tail_start),
-                ptr.add(new_tail_start),
+                pointer.add(self.tail_start),
+                pointer.add(new_tail_start),
                 self.tail_len
             );
         }
@@ -244,5 +236,14 @@ impl<Item, const INLINE: usize, Heap: Allocator> Drain<'_, Item, INLINE, Heap> {
 impl<Item: Debug, const INLINE: usize, Heap: Allocator> Debug for Drain<'_, Item, INLINE, Heap> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Format {
         f.debug_tuple("Drain").field(&self.iter.as_slice()).finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<Item: DeFormat, const INLINE: usize, Heap: Allocator> DeFormat
+    for Drain<'_, Item, INLINE, Heap>
+{
+    fn format(&self, fmt: DeFormatter<'_>) {
+        dewrite!(fmt, "Drain({=[?]})", self.iter.as_slice());
     }
 }

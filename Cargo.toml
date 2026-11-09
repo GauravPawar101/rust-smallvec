@@ -10,7 +10,15 @@ homepage.workspace = true
 description = "'Small vector' optimization: store up to a small number of items on the stack"
 keywords = ["small", "vec", "vector", "stack", "no_std"]
 categories = ["data-structures"]
-exclude = [".gitignore", "tests/", "fuzz/", "benches/", ".github/", "rustfmt.toml", ".vscode/"]
+exclude = [
+  ".gitignore",
+  "tests/",
+  "fuzz/",
+  "benches/",
+  ".github/",
+  "rustfmt.toml",
+  ".vscode/",
+]
 
 [profile.bench]
 lto = "fat"
@@ -25,11 +33,11 @@ debug = true
 strip = false
 
 [features]
-allocator-api = []
-allocator-api2 = ["allocator-api", "dep:allocator-api2"]
-internals = []
+allocator-api = ["dep:smallvec-macro"]
+allocator-api2 = ["allocator-api", "dep:allocator-api2", "dep:smallvec-macro"]
+internals = ["dep:smallvec-macro"]
 malloc-size-of = ["dep:malloc_size_of"]
-may-dangle = []
+may-dangle = ["dep:smallvec-macro"]
 proptest = ["dep:proptest", "std"]
 rayon = ["dep:rayon", "std"]
 schemars = ["dep:schemars", "std"]
@@ -39,12 +47,13 @@ std = []
 
 [dependencies]
 allocator-api2 = { version = "0.4", optional = true, features = [
-    "alloc",
+  "alloc",
 ], default-features = false }
 arbitrary = { version = "1", optional = true, default-features = false }
+arrayvec = { version = "0.7", optional = true, default-features = false }
 borsh = { version = "1", optional = true, features = [
-    "derive",
-    "unstable__schema",
+  "derive",
+  "unstable__schema",
 ], default-features = false }
 bytemuck = { version = "1", optional = true, default-features = false }
 bytes = { version = "1", optional = true, default-features = false }
@@ -53,13 +62,16 @@ encase = { version = "0.13", optional = true, default-features = false }
 equivalent = { version = "1", optional = true, default-features = false }
 malloc_size_of = { version = "0.1", optional = true, default-features = false }
 proptest = { version = "1", optional = true, features = [
-    "std",
+  "std",
 ], default-features = false }
 rayon = { version = "1", optional = true, default-features = false }
-rkyv = { version = "0.8", optional = true, default-features = false, features = ["alloc"] }
+rkyv = { version = "0.8", optional = true, default-features = false, features = [
+  "alloc",
+] }
 schemars = { version = "1", optional = true, default-features = false }
 serde_core = { version = "1", optional = true, default-features = false }
-smallvec-macro = { version = "0.0.0", path = "./macro", default-features = false }
+smallvec-macro = { version = "0.0.0", optional = true, default-features = false }
+zerocopy = { version = "0.8", optional = true, default-features = false }
 zeroize = { version = "1", optional = true, default-features = false }
 
 [dev-dependencies]
@@ -74,6 +86,10 @@ required-features = ["internals"]
 [[test]]
 name = "arbitrary"
 required-features = ["arbitrary"]
+
+[[test]]
+name = "arrayvec"
+required-features = ["arrayvec"]
 
 [[test]]
 name = "borsh"
@@ -124,6 +140,10 @@ name = "std"
 required-features = ["std"]
 
 [[test]]
+name = "zerocopy"
+required-features = ["zerocopy"]
+
+[[test]]
 name = "zeroize"
 required-features = ["zeroize"]
 
@@ -141,15 +161,53 @@ harness = false
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lints.rust]
+unused = { level = "deny", priority = -1 }
+deprecated = "deny"
+unreachable_code = "deny"
+nonstandard_style = { level = "deny", priority = -1 }
+warnings = "deny"
+missing_debug_implementations = "deny"
+dropping_copy_types = "deny"
+dropping_references = "deny"
+elided_lifetimes_in_paths = "deny"
+explicit_builtin_cfgs_in_flags = "deny"
+forgetting_copy_types = "deny"
+forgetting_references = "deny"
+impl_trait_redundant_captures = "deny"
+invalid_doc_attributes = "deny"
+irrefutable_let_patterns = "deny"
+macro_use_extern_crate = "deny"
+missing_copy_implementations = "deny"
+mutable_transmutes = "deny"
+noop_method_call = "deny"
+opaque_hidden_inferred_bound = "deny"
+overflowing_literals = "deny"
+redundant_imports = "deny"
+single_use_lifetimes = "deny"
+trivial_casts = "deny"
+unknown_lints = "deny"
+arithmetic_overflow = "deny"
+missing_docs = "allow"
+type_alias_bounds = "deny"
+
+[lints.clippy]
+all = "deny"
+
+[lints.rustdoc]
+all = "deny"
+
+[lints.cargo]
+unknown_lints = "deny"
+unused_dependencies = "deny"
+non_kebab_case_features = "deny"
+
 [workspace]
 package.edition = "2024"
 package.authors = ["The Servo Project Developers"]
 package.license = "MIT OR Apache-2.0"
-package.repository = "https://github.com/servo/rust-smallvec"
+package.repository = "https://github.com/smallvec/smallvec"
 package.homepage = "https://smallvec.rs"
 package.rust-version = "1.86"
 resolver = "3"
-members = [
-    ".",
-    "fuzz"
-]
+members = [".", "fuzz"]

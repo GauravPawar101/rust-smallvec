@@ -1,3 +1,9 @@
+#[cfg(feature = "defmt")]
+use defmt::{
+    Format as DeFormat,
+    Formatter as DeFormatter,
+    write as dewrite
+};
 use {
     super::super::{
         DropDealloc,
@@ -16,10 +22,6 @@ use {
             Result as Format
         },
         iter::FusedIterator,
-        mem::{
-            align_of,
-            size_of
-        },
         ptr::{
             NonNull,
             slice_from_raw_parts_mut
@@ -68,8 +70,8 @@ impl<Item, const INLINE: usize, Heap: Allocator> AsRef<[Item]> for IntoIter<Item
         // `self.begin..end` are all initialized. So the pointer arithmetic is
         // valid, and so is the construction of the slice
         unsafe {
-            let ptr = self.raw.as_ptr(on_heap);
-            from_raw_parts(ptr.add(self.begin), end - self.begin)
+            let pointer = self.raw.as_ptr(on_heap);
+            from_raw_parts(pointer.add(self.begin), end - self.begin)
         }
     }
 }
@@ -80,8 +82,8 @@ impl<Item, const INLINE: usize, Heap: Allocator> AsMut<[Item]> for IntoIter<Item
         let (end, on_heap) = self.end.parts();
         // SAFETY: see above
         unsafe {
-            let ptr = self.raw.as_mut_ptr(on_heap);
-            from_raw_parts_mut(ptr.add(self.begin), end - self.begin)
+            let pointer = self.raw.as_mut_ptr(on_heap);
+            from_raw_parts_mut(pointer.add(self.begin), end - self.begin)
         }
     }
 }
@@ -92,23 +94,17 @@ impl<Item, const INLINE: usize, Heap: Allocator> IntoIter<Item, INLINE, Heap> {
         note = "use `<IntoIter<Item, INLINE, Heap> as AsRef<[Item]>>::as_ref` instead"
     )]
     #[inline]
-    pub fn as_slice(&self) -> &[Item] {
-        self.as_ref()
-    }
+    pub fn as_slice(&self) -> &[Item] { self.as_ref() }
 
     #[deprecated(
         since = "2.0.0-beta.3",
         note = "use `<IntoIter<Item, INLINE, Heap> as AsMut<[Item]>>::as_mut` instead"
     )]
     #[inline]
-    pub fn as_mut_slice(&mut self) -> &mut [Item] {
-        self.as_mut()
-    }
+    pub fn as_mut_slice(&mut self) -> &mut [Item] { self.as_mut() }
 
     #[cfg(feature = "specialization")]
-    pub(crate) fn mark_consumed(&mut self) {
-        self.begin = self.end.len();
-    }
+    pub(crate) fn mark_consumed(&mut self) { self.begin = self.end.len(); }
 }
 
 impl<Item, const INLINE: usize, Heap: Allocator> Iterator for IntoIter<Item, INLINE, Heap> {
@@ -122,8 +118,8 @@ impl<Item, const INLINE: usize, Heap: Allocator> Iterator for IntoIter<Item, INL
         } else {
             // SAFETY: see above
             unsafe {
-                let ptr = self.raw.as_mut_ptr(on_heap);
-                let value = ptr.add(self.begin).read();
+                let pointer = self.raw.as_mut_ptr(on_heap);
+                let value = pointer.add(self.begin).read();
                 self.begin += 1;
                 Some(value)
             }
@@ -148,9 +144,9 @@ impl<Item, const INLINE: usize, Heap: Allocator> DoubleEndedIterator
         } else {
             // SAFETY: see above
             unsafe {
-                let ptr = self.raw.as_mut_ptr(on_heap);
+                let pointer = self.raw.as_mut_ptr(on_heap);
                 self.end.sub(1);
-                let value = ptr.add(end - 1).read();
+                let value = pointer.add(end - 1).read();
                 Some(value)
             }
         }
@@ -169,11 +165,11 @@ impl<Item, const INLINE: usize, Heap: Allocator> Drop for IntoIter<Item, INLINE,
         unsafe {
             let (end, on_heap) = self.end.parts();
             let begin = self.begin;
-            let ptr = self.raw.as_mut_ptr(on_heap);
+            let pointer = self.raw.as_mut_ptr(on_heap);
             let _drop_dealloc = if on_heap {
-                let capacity = self.raw.heap.1;
+                let capacity = self.raw.heap.len();
                 Some(DropDealloc {
-                    ptr: NonNull::new_unchecked(ptr as *mut u8),
+                    pointer: NonNull::new_unchecked(pointer as *mut u8),
                     size_bytes: capacity * size_of::<Item>(),
                     align: align_of::<Item>(),
                     allocator: &self.allocator
@@ -181,7 +177,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> Drop for IntoIter<Item, INLINE,
             } else {
                 None
             };
-            slice_from_raw_parts_mut(ptr.add(begin), end - begin).drop_in_place();
+            slice_from_raw_parts_mut(pointer.add(begin), end - begin).drop_in_place();
         }
     }
 }
@@ -208,7 +204,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> IntoIterator for SmallVec<Item,
     type Item = Item;
 
     fn into_iter(self) -> Self::IntoIter {
-        let (raw, end, allocator) = self.into_parts_with_allocator();
+        let (end, raw, allocator) = self.into();
         IntoIter {
             raw,
             allocator,
@@ -221,5 +217,14 @@ impl<Item, const INLINE: usize, Heap: Allocator> IntoIterator for SmallVec<Item,
 impl<Item: Debug, const INLINE: usize, Heap: Allocator> Debug for IntoIter<Item, INLINE, Heap> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Format {
         f.debug_tuple("IntoIter").field(&self.as_ref()).finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<Item: DeFormat, const INLINE: usize, Heap: Allocator> DeFormat
+    for IntoIter<Item, INLINE, Heap>
+{
+    fn format(&self, fmt: DeFormatter<'_>) {
+        dewrite!(fmt, "IntoIter({=[?]})", self.as_ref());
     }
 }
