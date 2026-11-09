@@ -50,7 +50,7 @@ v.sort();
 ## Feature List
 
 - `allocator-api` (Rust 1.100+): uses the `allocator-api` backend
- for the allocator API
+  for the allocator API
 - `allocator-api2`: uses the `allocator-api2` backend for the allocator API
 - `arbitrary`: implements `Arbitrary` for any `SmallVec` storing elements
   that implement `Arbitrary`
