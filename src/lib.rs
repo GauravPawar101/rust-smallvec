@@ -6,7 +6,6 @@
 #![cfg_attr(feature = "may-dangle", feature(dropck_eyepatch))]
 #![cfg_attr(
     all(feature = "allocator-api", not(feature = "allocator-api2")),
-    allow(clippy::incompatible_msrv)
 )]
 
 extern crate alloc;
