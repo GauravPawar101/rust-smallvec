@@ -12,6 +12,7 @@ use {
     alloc::{
         alloc::Allocator,
         borrow::Cow,
+        boxed::Box,
         collections::VecDeque,
         vec::Vec
     },
@@ -180,6 +181,19 @@ implementation!([VecHeap: Allocator] for Vec<Item, VecHeap> =<> SmallVec<Other, 
 implementation!([VecHeap: Allocator] for SmallVec<Item, INLINE, Heap> =<>+ Vec<Other, VecHeap>);
 #[cfg(feature = "equivalent")]
 implementation!([VecHeap: Allocator] for Vec<Item, VecHeap> =<>+ SmallVec<Other, INLINE, Heap>);
+
+implementation!([BoxHeap: Allocator] for SmallVec<Item, INLINE, Heap> =? Box<[Other], BoxHeap>);
+implementation!([BoxHeap: Allocator] for Box<[Item], BoxHeap> =? SmallVec<Other, INLINE, Heap>);
+#[cfg(feature = "equivalent")]
+implementation!([BoxHeap: Allocator] for SmallVec<Item, INLINE, Heap> =?+ Box<[Other], BoxHeap>);
+#[cfg(feature = "equivalent")]
+implementation!([BoxHeap: Allocator] for Box<[Item], BoxHeap> =?+ SmallVec<Other, INLINE, Heap>);
+implementation!([BoxHeap: Allocator] for SmallVec<Item, INLINE, Heap> =<> Box<[Other], BoxHeap>);
+implementation!([BoxHeap: Allocator] for Box<[Item], BoxHeap> =<> SmallVec<Other, INLINE, Heap>);
+#[cfg(feature = "equivalent")]
+implementation!([BoxHeap: Allocator] for SmallVec<Item, INLINE, Heap> =<>+ Box<[Other], BoxHeap>);
+#[cfg(feature = "equivalent")]
+implementation!([BoxHeap: Allocator] for Box<[Item], BoxHeap> =<>+ SmallVec<Other, INLINE, Heap>);
 
 #[cfg(feature = "rkyv")]
 implementation!([] for ArchivedVec<Item> =? SmallVec<Other, INLINE, Heap>);
