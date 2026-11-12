@@ -168,18 +168,18 @@ implementation!([] for SmallVec<Item, INLINE, Heap> =<>+ &mut [Other]);
 #[cfg(feature = "equivalent")]
 implementation!([] for &mut [Item] =<>+ SmallVec<Other, INLINE, Heap>);
 
-implementation!([] for SmallVec<Item, INLINE, Heap> =? Vec<Other>);
-implementation!([] for Vec<Item> =? SmallVec<Other, INLINE, Heap>);
+implementation!([VecHeap: Allocator] for SmallVec<Item, INLINE, Heap> =? Vec<Other, VecHeap>);
+implementation!([VecHeap: Allocator] for Vec<Item, VecHeap> =? SmallVec<Other, INLINE, Heap>);
 #[cfg(feature = "equivalent")]
-implementation!([] for SmallVec<Item, INLINE, Heap> =?+ Vec<Other>);
+implementation!([VecHeap: Allocator] for SmallVec<Item, INLINE, Heap> =?+ Vec<Other, VecHeap>);
 #[cfg(feature = "equivalent")]
-implementation!([] for Vec<Item> =?+ SmallVec<Other, INLINE, Heap>);
-implementation!([] for SmallVec<Item, INLINE, Heap> =<> Vec<Other>);
-implementation!([] for Vec<Item> =<> SmallVec<Other, INLINE, Heap>);
+implementation!([VecHeap: Allocator] for Vec<Item, VecHeap> =?+ SmallVec<Other, INLINE, Heap>);
+implementation!([VecHeap: Allocator] for SmallVec<Item, INLINE, Heap> =<> Vec<Other, VecHeap>);
+implementation!([VecHeap: Allocator] for Vec<Item, VecHeap> =<> SmallVec<Other, INLINE, Heap>);
 #[cfg(feature = "equivalent")]
-implementation!([] for SmallVec<Item, INLINE, Heap> =<>+ Vec<Other>);
+implementation!([VecHeap: Allocator] for SmallVec<Item, INLINE, Heap> =<>+ Vec<Other, VecHeap>);
 #[cfg(feature = "equivalent")]
-implementation!([] for Vec<Item> =<>+ SmallVec<Other, INLINE, Heap>);
+implementation!([VecHeap: Allocator] for Vec<Item, VecHeap> =<>+ SmallVec<Other, INLINE, Heap>);
 
 #[cfg(feature = "rkyv")]
 implementation!([] for ArchivedVec<Item> =? SmallVec<Other, INLINE, Heap>);
