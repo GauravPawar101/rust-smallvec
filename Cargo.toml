@@ -33,6 +33,7 @@ debug = true
 strip = false
 
 [features]
+deref-pure = []
 internals = ["dep:smallvec-macro"]
 malloc-size-of = ["dep:malloc_size_of"]
 may-dangle = []

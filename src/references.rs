@@ -58,3 +58,9 @@ impl<Item, const INLINE: usize, Heap: Allocator> DerefMut for SmallVec<Item, INL
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target { self.as_mut() }
 }
+
+#[cfg(feature = "deref-pure")]
+unsafe impl<Item, const INLINE: usize, Heap: Allocator> core::ops::DerefPure
+    for SmallVec<Item, INLINE, Heap>
+{
+}
