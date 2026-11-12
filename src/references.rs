@@ -60,9 +60,6 @@ impl<Item, const INLINE: usize, Heap: Allocator> DerefMut for SmallVec<Item, INL
 }
 
 #[cfg(feature = "deref-pure")]
-// SAFETY: `deref`/`deref_mut` re-derive the same pointer and length from
-// `self.raw` and `self.length` without mutating `self`, so repeated calls
-// return the same slice: exactly the idempotence `DerefPure` requires.
 unsafe impl<Item, const INLINE: usize, Heap: Allocator> core::ops::DerefPure
     for SmallVec<Item, INLINE, Heap>
 {

@@ -1,10 +1,10 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(feature = "deref-pure", feature(deref_pure_trait))]
 #![cfg_attr(feature = "specialization", allow(incomplete_features))]
 #![cfg_attr(feature = "specialization", feature(specialization, trusted_len))]
 #![cfg_attr(feature = "may-dangle", feature(dropck_eyepatch))]
-#![cfg_attr(feature = "deref-pure", feature(deref_pure_trait))]
 
 extern crate alloc;
 #[cfg(feature = "std")]
