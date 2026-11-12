@@ -1,5 +1,3 @@
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 #[cfg(feature = "arrayvec")]
 use arrayvec::ArrayVec;
 #[cfg(feature = "equivalent")]
@@ -10,13 +8,12 @@ use equivalent::{
 #[cfg(feature = "rkyv")]
 use rkyv::vec::ArchivedVec;
 use {
-    super::{
-        SmallVec,
-        allocator::Allocator
-    },
+    super::SmallVec,
     alloc::{
+        alloc::Allocator,
         borrow::Cow,
-        collections::VecDeque
+        collections::VecDeque,
+        vec::Vec
     },
     core::cmp::Ordering
 };

@@ -1,13 +1,14 @@
 #![doc = include_str!("../README.md")]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(feature = "specialization", allow(incomplete_features))]
 #![cfg_attr(feature = "specialization", feature(specialization, trusted_len))]
 #![cfg_attr(feature = "may-dangle", feature(dropck_eyepatch))]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
-mod allocator;
 #[cfg(feature = "borsh")]
 mod borsh;
 mod comparisons;
@@ -19,6 +20,7 @@ mod macros;
 #[cfg(feature = "malloc-size-of")]
 mod mallocsizeof;
 mod newrange;
+mod proxy;
 mod rawsmallvec;
 mod references;
 #[cfg(feature = "rkyv")]
@@ -30,6 +32,8 @@ mod specialization;
 #[cfg(feature = "zerocopy")]
 mod zerocopy;
 
+#[rustfmt::ignore]
+use alloc::vec;
 #[cfg(feature = "arbitrary")]
 use arbitrary::{
     Arbitrary,
@@ -66,11 +70,7 @@ use proptest::{
         Strategy
     }
 };
-#[cfg(any(
-    feature = "allocator-api",
-    feature = "internals",
-    feature = "may-dangle"
-))]
+#[cfg(any(feature = "internals", feature = "may-dangle"))]
 use smallvec_macro::syntax;
 #[cfg(feature = "specialization")]
 use specialization::{
@@ -97,18 +97,16 @@ use {
     }
 };
 use {
-    allocator::{
-        Allocator,
+    alloc::{
+        alloc::Global,
         boxed::Box,
-        global::Global,
-        like::Like,
-        vec::{
-            Vec,
-            vec
-        }
+        vec::Vec
     },
     core::{
-        alloc::Layout,
+        alloc::{
+            Allocator,
+            Layout
+        },
         fmt::{
             Debug,
             Formatter,
@@ -293,7 +291,7 @@ impl<Item, const INLINE: usize> SmallVec<Item, INLINE, Global> {
 
     #[inline]
     #[deprecated(since = "2.0.0-beta.3", note = "use `From::<Vec<T>>::from` instead")]
-    pub fn from_vec(vec: <Vec<Item, Global> as Like>::Type) -> Self { vec.into() }
+    pub fn from_vec(vec: Vec<Item, Global>) -> Self { vec.into() }
 
     #[inline]
     #[deprecated(since = "2.0.0-beta.3", note = "use `From::<&[Item]>::from` instead")]
@@ -967,11 +965,11 @@ impl<Item, const INLINE: usize, Heap: Allocator> SmallVec<Item, INLINE, Heap> {
 
     #[inline]
     #[deprecated(since = "2.0.0", note = "use `Into::<Vec<Item>>::into` instead")]
-    pub fn into_vec(self) -> <Vec<Item, Global> as Like>::Type { self.into() }
+    pub fn into_vec(self) -> Vec<Item, Global> { self.into() }
 
     #[inline]
     #[deprecated(since = "2.0.0", note = "use `Into::<Box<[Item]>>::into` instead")]
-    pub fn into_boxed_slice(self) -> <Box<[Item], Global> as Like>::Type { self.into() }
+    pub fn into_boxed_slice(self) -> Box<[Item], Global> { self.into() }
 
     #[inline]
     #[deprecated(
@@ -1252,8 +1250,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> SmallVec<Item, INLINE, Heap> {
         }
     }
 
-    #[cfg_attr(feature = "allocator-api", syntax(pub))]
-    const fn new_in(allocator: Heap) -> SmallVec<Item, INLINE, Heap> {
+    pub const fn new_in(allocator: Heap) -> SmallVec<Item, INLINE, Heap> {
         Self {
             length: LocatedLength::new(0, false),
             raw: RawSmallVec::new(),
@@ -1261,8 +1258,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> SmallVec<Item, INLINE, Heap> {
         }
     }
 
-    #[cfg_attr(feature = "allocator-api", syntax(pub))]
-    fn try_with_capacity_in(capacity: usize, allocator: Heap) -> Result<Self, SmallVecError> {
+    pub fn try_with_capacity_in(capacity: usize, allocator: Heap) -> Result<Self, SmallVecError> {
         let mut this = Self::new_in(allocator);
         if capacity > Self::inline_size() && !Self::IS_ZST {
             // SAFETY: we checked all the preconditions
@@ -1277,9 +1273,8 @@ impl<Item, const INLINE: usize, Heap: Allocator> SmallVec<Item, INLINE, Heap> {
         Ok(this)
     }
 
-    #[cfg_attr(feature = "allocator-api", syntax(pub))]
     #[track_caller]
-    fn with_capacity_in(capacity: usize, allocator: Heap) -> Self {
+    pub fn with_capacity_in(capacity: usize, allocator: Heap) -> Self {
         match Self::try_with_capacity_in(capacity, allocator) {
             Ok(vec) => vec,
             Err(error) => error.handle()
@@ -1288,7 +1283,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> SmallVec<Item, INLINE, Heap> {
 
     #[inline]
     #[must_use = "dropping the parts leaks the elements and the heap buffer"]
-    #[cfg(all(feature = "internals", feature = "allocator-api"))]
+    #[cfg(feature = "internals")]
     #[deprecated(since = "2.0.0-beta.4", note = "")]
     pub fn into_parts_with_allocator(
         self
@@ -1301,7 +1296,7 @@ impl<Item, const INLINE: usize, Heap: Allocator> SmallVec<Item, INLINE, Heap> {
     /// Same contract as [`SmallVec::parts`], except that a heap buffer
     /// must have been allocated by `allocator` (or an equivalent one).
     #[inline]
-    #[cfg_attr(all(feature = "internals", feature = "allocator-api"), syntax(pub))]
+    #[cfg_attr(feature = "internals", syntax(pub))]
     unsafe fn parts_in(
         length: LocatedLength<Item>,
         raw: RawSmallVec<Item, INLINE>,
